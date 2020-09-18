@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use num_traits::FromPrimitive;
 use termbox::RawEvent;
+use termbox::RawCell;
 use std::os::raw::c_int;
 use gag::Hold;
 use std::time::Duration;
@@ -23,6 +24,8 @@ pub mod keyboard;
 pub mod mouse;
 
 pub use self::running::running;
+pub use keyboard::Modifiers;
+pub use keyboard::PressedKey;
 pub use keyboard::Key;
 pub use mouse::Mouse;
 
@@ -30,8 +33,8 @@ pub use mouse::Mouse;
 pub enum Event {
     KeyEventRaw(u8, u16, u32),
     KeyEvent(Key),
-    ResizeEvent(i32, i32),
-    MouseEvent(Mouse, i32, i32),
+    ResizeEvent(i16, i16),
+    MouseEvent(Mouse, i16, i16),
     NoEvent
 }
 
@@ -53,13 +56,10 @@ pub enum InputMode {
 
 #[derive(Clone, Copy, Debug)]
 pub enum OutputMode {
-    Current = 0,
-    Normal = 1,
-    EightBit = 2,  // 256 Colors
-    WebSafe = 3,   // 216 Colors
-    Grayscale = 4,
+    Normal = 0,
+    EightBit = 1,  // 256 Colors
+    // TrueColor = 2 ; needs to be compiled in
 }
-
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Color {
@@ -74,10 +74,11 @@ pub enum Color {
     Byte(u16),
     Default,
 }
+
 impl Color {
     pub fn as_256color(&self) -> u16 {
         match *self {
-            Color::Black => 0x00,
+            Color::Black => 0x10,
             Color::Red => 0x01,
             Color::Green => 0x02,
             Color::Yellow => 0x03,
@@ -93,14 +94,14 @@ impl Color {
     pub fn as_16color(&self) -> u16 {
         match *self {
             Color::Default => 0x00,
-            Color::Black => 0x01,
-            Color::Red => 0x02,
-            Color::Green => 0x03,
-            Color::Yellow => 0x04,
-            Color::Blue => 0x05,
-            Color::Magenta => 0x06,
-            Color::Cyan => 0x07,
-            Color::White => 0x08,
+            Color::Black => 0x10,
+            Color::Red => 0x01,
+            Color::Green => 0x02,
+            Color::Yellow => 0x03,
+            Color::Blue => 0x04,
+            Color::Magenta => 0x05,
+            Color::Cyan => 0x06,
+            Color::White => 0x0F,
             Color::Byte(b) => panic!("Attempted to cast color byte {} to 16 color mode", b),
         }
     }
@@ -118,8 +119,8 @@ mod style {
         flags Style: u16 {
             const TB_NORMAL_COLOR = 0x000F,
             const RB_BOLD = 0x0100,
-            const RB_UNDERLINE = 0x0200,
-            const RB_REVERSE = 0x0400,
+            const RB_UNDERLINE = 0x0400,
+            const RB_REVERSE = 0x0800,
             const RB_NORMAL = 0x0000,
             const TB_ATTRIB = RB_BOLD.bits | RB_UNDERLINE.bits | RB_REVERSE.bits,
         }
@@ -136,7 +137,7 @@ mod style {
     }
 }
 
-const NIL_RAW_EVENT: RawEvent = RawEvent { etype: 0, emod: 0, key: 0, ch: 0, w: 0, h: 0, x: 0, y: 0 };
+const NIL_RAW_EVENT: RawEvent = RawEvent { etype: 0, key: 0, ch: 0, meta: 0, w: 0, h: 0, x: 0, y: 0 };
 
 #[derive(Debug)]
 pub enum EventError {
@@ -146,7 +147,7 @@ pub enum EventError {
 
 impl fmt::Display for EventError {
    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-      write!(fmt, "{}", self.description())
+      write!(fmt, "{}", self.to_string())
    }
 }
 
@@ -176,6 +177,23 @@ impl FromPrimitive for EventError {
 
 pub type EventResult = Result<Event, EventError>;
 
+fn unpack_key(event_key: u16, event_char: u32) -> Option<Key> {
+    let mut modifiers = Modifiers::new();
+    let parsed_key = char::from_u32(event_char);
+    match parsed_key {
+        Some(c) => {
+            if c.is_ascii_uppercase() {
+                modifiers = Modifiers::new_all(false, true, false);
+                return Some(Key::new(PressedKey::Char(c), modifiers));
+            } else {
+                return Some(Key::new(PressedKey::Char(c), modifiers));
+            }
+        }
+        _ => {}
+    }
+    return Some(Key::new(PressedKey::Unknown(event_key), Modifiers::new()));
+}
+
 /// Unpack a RawEvent to an Event
 ///
 /// if the `raw` parameter is true, then the Event variant will be the raw
@@ -189,17 +207,25 @@ fn unpack_event(ev_type: c_int, ev: &RawEvent, raw: bool) -> EventResult {
         0 => Ok(Event::NoEvent),
         1 => Ok(
             if raw {
-                Event::KeyEventRaw(ev.emod, ev.key, ev.ch)
+                Event::KeyEventRaw(ev.meta, ev.key, ev.ch)
             } else {
-                let k = match ev.key {
-                    0 => char::from_u32(ev.ch).map(|c| Key::Char(c)),
+                // TODO: emod has alt modifier
+                // there is no shift modifier to check for so we simplify - check for uppercase
+                let mut k = match ev.key {
+                    0 => unpack_key(ev.key, ev.ch),
+                    // TODO: figure out how to get ctrl+shift shortcuts
                     a => Key::from_code(a),
                 };
+
+
                 if let Some(key) = k {
-                    Event::KeyEvent(key)
-                }
-                else {
-                    Event::KeyEvent(Key::Unknown(ev.key))
+                    let mut actual_key = key;
+                    actual_key.raw_emod = ev.meta;
+                    actual_key.raw_key = ev.key;
+                    actual_key.raw_ch = ev.ch;
+                    return Ok(Event::KeyEvent(actual_key))
+                } else {
+                    Event::KeyEvent(Key::new(PressedKey::Unknown(ev.key), Modifiers::new()))
                 }
             }),
         2 => Ok(Event::ResizeEvent(ev.w, ev.h)),
@@ -224,7 +250,7 @@ pub enum InitError {
 
 impl fmt::Display for InitError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{}", self.description())
+        write!(fmt, "{}", self.to_string())
     }
 }
 
@@ -240,7 +266,7 @@ impl Error for InitError {
         }
     }
 
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             InitError::BufferStderrFailed(ref e) => Some(e),
             _ => None
@@ -317,7 +343,7 @@ impl Default for InitOptions {
     fn default() -> Self {
         InitOptions {
             input_mode: InputMode::Current,
-            output_mode: OutputMode::Current,
+            output_mode: OutputMode::Normal,
             buffer_stderr: false,
         }
     }
@@ -397,7 +423,7 @@ impl RustBox {
             0 => RustBox {
                 _stderr: stderr,
                 _running: running,
-                output_mode: OutputMode::Current,
+                output_mode: OutputMode::Normal,
                 input_lock: Mutex::new(()),
                 output_lock: Mutex::new(()),
             },
@@ -405,12 +431,15 @@ impl RustBox {
                 return Err(FromPrimitive::from_isize(res as isize).unwrap())
             }
         }};
+        /*
+        // TODO: set input mode
         match opts.input_mode {
-            InputMode::Current => (),
+            InputMode::Current=> (),
             _ => rb.set_input_mode(opts.input_mode),
         }
+        */
         match opts.output_mode {
-            OutputMode::Current => (),
+            OutputMode::Normal=> (),
             _ => rb.set_output_mode(opts.output_mode),
         }
 
@@ -432,23 +461,19 @@ impl RustBox {
     pub fn clear(&self) {
         let _lock = self.output_lock.lock();
 
-        unsafe { termbox::tb_clear() }
+        unsafe { termbox::tb_clear_buffer() }
     }
 
     pub fn present(&self) {
         let _lock = self.output_lock.lock();
 
-        unsafe { termbox::tb_present() }
+        unsafe { termbox::tb_render() }
     }
 
     pub fn set_cursor(&self, x: isize, y: isize) {
         let _lock = self.output_lock.lock();
 
         unsafe { termbox::tb_set_cursor(x as c_int, y as c_int) }
-    }
-
-    pub unsafe fn change_cell(&self, x: usize, y: usize, ch: u32, fg: u16, bg: u16) {
-        termbox::tb_change_cell(x as c_int, y as c_int, ch, fg, bg)
     }
 
     pub fn print(&self, x: usize, y: usize, sty: Style, fg: Color, bg: Color, s: &str) {
@@ -520,6 +545,40 @@ impl RustBox {
         unpack_event(rc, &ev, raw)
     }
 
+    pub unsafe fn change_cell(&self, x: usize, y: usize, ch: u32, fg: u16, bg: u16) {
+        let mut cell = RawCell{
+            ch: ch,
+            fg: fg,
+            bg: bg,
+        };
+        termbox::tb_cell(x as i32, y as i32, &mut cell);
+    }
+
+    pub fn hide_cursor() {
+        unsafe {
+            termbox::tb_hide_cursor();
+        }
+    }
+
+    pub fn show_cursor() {
+        unsafe {
+            termbox::tb_show_cursor();
+        }
+    }
+
+    pub fn enable_mouse() {
+        unsafe {
+            termbox::tb_enable_mouse();
+        }
+    }
+
+    pub fn disable_mouse() {
+        unsafe {
+            termbox::tb_disable_mouse();
+        }
+    }
+
+    /*
     pub fn set_input_mode(&self, mode: InputMode) {
         let _lock = self.output_lock.lock();
 
@@ -527,6 +586,7 @@ impl RustBox {
             termbox::tb_select_input_mode(mode as c_int);
         }
     }
+    */
 
     pub fn set_output_mode(&mut self, mode: OutputMode) {
         let _lock = self.output_lock.lock();

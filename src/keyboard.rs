@@ -1,5 +1,45 @@
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Key {
+pub struct Modifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
+/**
+ * Shift is incorrectly handled for the moment
+ */
+impl Modifiers {
+    pub fn new() -> Self {
+        Self {
+            ctrl: false,
+            shift: false,
+            alt: false,
+        }
+    }
+
+    pub fn new_all(ctrl: bool, shift:bool, alt:bool) -> Self {
+        Self {
+            ctrl: ctrl,
+            shift: shift,
+            alt: alt,
+        }
+    }
+
+    pub fn shift_down(&self) -> bool {
+        return self.shift;
+    }
+
+    pub fn ctrl_down(&self) -> bool {
+        return self.ctrl;
+    }
+
+    pub fn alt_down(&self) -> bool {
+        return self.alt;
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PressedKey {
     Tab,
     Enter,
     Esc,
@@ -17,69 +57,94 @@ pub enum Key {
     PageDown,
 
     Char(char),
-    Ctrl(char),
     F(u32),
     Unknown(u16),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Key {
+    // ctrl, shift, alt modifiers
+    pub modifiers: Modifiers,
+    // actual pressed key
+    pub key: PressedKey,
+
+    pub raw_emod: u8,
+    pub raw_ch: u32,
+    pub raw_key: u16,
+}
+
 impl Key {
+
+    pub fn new(key: PressedKey, modifiers: Modifiers) -> Self {
+        Self {
+            key: key,
+            modifiers: modifiers,
+            raw_emod: 0,
+            raw_ch: 0,
+            raw_key: 0,
+        }
+    }
+
     pub fn from_code(code: u16) -> Option<Key> {
+        let empty_modifiers = Modifiers::new();
+        let ctrl = Modifiers{ctrl:true, ..empty_modifiers};
         match code {
-            1 => Some(Key::Ctrl('a')),
-            2 => Some(Key::Ctrl('b')),
-            3 => Some(Key::Ctrl('c')),
-            4 => Some(Key::Ctrl('d')),
-            5 => Some(Key::Ctrl('e')),
-            6 => Some(Key::Ctrl('f')),
-            7 => Some(Key::Ctrl('g')),
-            8 => Some(Key::Ctrl('h')),
-            9 => Some(Key::Tab),
-            10 => Some(Key::Ctrl('j')),
-            11 => Some(Key::Ctrl('k')),
-            12 => Some(Key::Ctrl('l')),
-            13 => Some(Key::Enter),
-            14 => Some(Key::Ctrl('n')),
-            15 => Some(Key::Ctrl('o')),
-            16 => Some(Key::Ctrl('p')),
-            17 => Some(Key::Ctrl('q')),
-            18 => Some(Key::Ctrl('r')),
-            19 => Some(Key::Ctrl('s')),
-            20 => Some(Key::Ctrl('t')),
-            21 => Some(Key::Ctrl('u')),
-            22 => Some(Key::Ctrl('v')),
-            23 => Some(Key::Ctrl('w')),
-            24 => Some(Key::Ctrl('x')),
-            25 => Some(Key::Ctrl('y')),
-            26 => Some(Key::Ctrl('z')),
-            27 => Some(Key::Esc),
-            28 => Some(Key::Ctrl('\\')),
-            29 => Some(Key::Ctrl(']')),
-            30 => Some(Key::Ctrl('6')),
-            31 => Some(Key::Ctrl('/')),
-            32 => Some(Key::Char(' ')),
-            127 => Some(Key::Backspace),
-            65514 => Some(Key::Right),
-            65515 => Some(Key::Left),
-            65516 => Some(Key::Down),
-            65517 => Some(Key::Up),
-            65535 => Some(Key::F(1)),
-            65534 => Some(Key::F(2)),
-            65533 => Some(Key::F(3)),
-            65532 => Some(Key::F(4)),
-            65531 => Some(Key::F(5)),
-            65530 => Some(Key::F(6)),
-            65529 => Some(Key::F(7)),
-            65528 => Some(Key::F(8)),
-            65527 => Some(Key::F(9)),
-            65526 => Some(Key::F(10)),
-            65525 => Some(Key::F(11)),
-            65524 => Some(Key::F(12)),
-            65523 => Some(Key::Insert),
-            65522 => Some(Key::Delete),
-            65521 => Some(Key::Home),
-            65520 => Some(Key::End),
-            65519 => Some(Key::PageUp),
-            65518 => Some(Key::PageDown),
+            termbox::TB_KEY_CTRL_A => Some(Key::new(PressedKey::Char('a'), ctrl)),
+            termbox::TB_KEY_CTRL_B => Some(Key::new(PressedKey::Char('b'), ctrl)),
+            termbox::TB_KEY_CTRL_C => Some(Key::new(PressedKey::Char('c'), ctrl)),
+            termbox::TB_KEY_CTRL_D => Some(Key::new(PressedKey::Char('d'), ctrl)),
+            termbox::TB_KEY_CTRL_E => Some(Key::new(PressedKey::Char('e'), ctrl)),
+            termbox::TB_KEY_CTRL_F => Some(Key::new(PressedKey::Char('f'), ctrl)),
+            termbox::TB_KEY_BACKSPACE => Some(Key::new(PressedKey::Backspace, empty_modifiers)),
+            termbox::TB_KEY_TAB => Some(Key::new(PressedKey::Tab, empty_modifiers)),
+            termbox::TB_KEY_CTRL_J => Some(Key::new(PressedKey::Char('j'), ctrl)),
+            termbox::TB_KEY_CTRL_K => Some(Key::new(PressedKey::Char('k'), ctrl)),
+            termbox::TB_KEY_CTRL_L => Some(Key::new(PressedKey::Char('l'), ctrl)),
+            termbox::TB_KEY_ENTER => Some(Key::new(PressedKey::Enter, empty_modifiers)),
+            termbox::TB_KEY_CTRL_N => Some(Key::new(PressedKey::Char('n'), ctrl)),
+            termbox::TB_KEY_CTRL_O => Some(Key::new(PressedKey::Char('o'), ctrl)),
+            termbox::TB_KEY_CTRL_P => Some(Key::new(PressedKey::Char('p'), ctrl)),
+            termbox::TB_KEY_CTRL_Q => Some(Key::new(PressedKey::Char('q'), ctrl)),
+            termbox::TB_KEY_CTRL_R => Some(Key::new(PressedKey::Char('r'), ctrl)),
+            termbox::TB_KEY_CTRL_S => Some(Key::new(PressedKey::Char('s'), ctrl)),
+            termbox::TB_KEY_CTRL_T => Some(Key::new(PressedKey::Char('t'), ctrl)),
+            termbox::TB_KEY_CTRL_U => Some(Key::new(PressedKey::Char('u'), ctrl)),
+            termbox::TB_KEY_CTRL_V => Some(Key::new(PressedKey::Char('v'), ctrl)),
+            termbox::TB_KEY_CTRL_W => Some(Key::new(PressedKey::Char('w'), ctrl)),
+            termbox::TB_KEY_CTRL_X => Some(Key::new(PressedKey::Char('x'), ctrl)),
+            termbox::TB_KEY_CTRL_Y => Some(Key::new(PressedKey::Char('y'), ctrl)),
+            termbox::TB_KEY_CTRL_Z => Some(Key::new(PressedKey::Char('z'), ctrl)),
+            termbox::TB_KEY_ESC => Some(Key::new(PressedKey::Esc, empty_modifiers)),
+            termbox::TB_KEY_CTRL_BACKSLASH => Some(Key::new(PressedKey::Char('\\'), ctrl)),
+            termbox::TB_KEY_CTRL_RSQ_BRACKET => Some(Key::new(PressedKey::Char(']'), ctrl)),
+            termbox::TB_KEY_CTRL_6 => Some(Key::new(PressedKey::Char('6'), ctrl)),
+            termbox::TB_KEY_CTRL_7 => Some(Key::new(PressedKey::Char('7'), ctrl)),
+            termbox::TB_KEY_CTRL_SLASH => Some(Key::new(PressedKey::Char('/'), ctrl)),
+            termbox::TB_KEY_CTRL_UNDERSCORE => Some(Key::new(PressedKey::Char('_'), ctrl)),
+            termbox::TB_KEY_SPACE => Some(Key::new(PressedKey::Char(' '), empty_modifiers)),
+            termbox::TB_KEY_BACKSPACE => Some(Key::new(PressedKey::Backspace, empty_modifiers)),
+            termbox::TB_KEY_ARROW_RIGHT => Some(Key::new(PressedKey::Right, empty_modifiers)),
+            termbox::TB_KEY_ARROW_LEFT => Some(Key::new(PressedKey::Left, empty_modifiers)),
+            termbox::TB_KEY_ARROW_DOWN => Some(Key::new(PressedKey::Down, empty_modifiers)),
+            termbox::TB_KEY_ARROW_UP => Some(Key::new(PressedKey::Up, empty_modifiers)),
+            termbox::TB_KEY_F1 => Some(Key::new(PressedKey::F(1), empty_modifiers)),
+            termbox::TB_KEY_F2 => Some(Key::new(PressedKey::F(2), empty_modifiers)),
+            termbox::TB_KEY_F3 => Some(Key::new(PressedKey::F(3), empty_modifiers)),
+            termbox::TB_KEY_F4 => Some(Key::new(PressedKey::F(4), empty_modifiers)),
+            termbox::TB_KEY_F5 => Some(Key::new(PressedKey::F(5), empty_modifiers)),
+            termbox::TB_KEY_F6 => Some(Key::new(PressedKey::F(6), empty_modifiers)),
+            termbox::TB_KEY_F7 => Some(Key::new(PressedKey::F(7), empty_modifiers)),
+            termbox::TB_KEY_F8 => Some(Key::new(PressedKey::F(8), empty_modifiers)),
+            termbox::TB_KEY_F9 => Some(Key::new(PressedKey::F(9), empty_modifiers)),
+            termbox::TB_KEY_F10 => Some(Key::new(PressedKey::F(10), empty_modifiers)),
+            termbox::TB_KEY_F11 => Some(Key::new(PressedKey::F(11), empty_modifiers)),
+            termbox::TB_KEY_F12 => Some(Key::new(PressedKey::F(12), empty_modifiers)),
+            termbox::TB_KEY_INSERT => Some(Key::new(PressedKey::Insert, empty_modifiers)),
+            termbox::TB_KEY_DELETE => Some(Key::new(PressedKey::Delete, empty_modifiers)),
+            termbox::TB_KEY_HOME => Some(Key::new(PressedKey::Home, empty_modifiers)),
+            termbox::TB_KEY_END => Some(Key::new(PressedKey::End, empty_modifiers)),
+            termbox::TB_KEY_PGUP => Some(Key::new(PressedKey::PageUp, empty_modifiers)),
+            termbox::TB_KEY_PGDN => Some(Key::new(PressedKey::PageDown, empty_modifiers)),
             _     => None,
         }
     }
