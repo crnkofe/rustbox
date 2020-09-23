@@ -4,6 +4,7 @@ use std::default::Default;
 
 use rustbox::{Color, RustBox};
 use rustbox::Key;
+use rustbox::PressedKey;
 
 fn main() {
     let rustbox = match RustBox::init(Default::default()) {
@@ -18,8 +19,8 @@ fn main() {
         rustbox.present();
         match rustbox.poll_event(false) {
             Ok(rustbox::Event::KeyEvent(key)) => {
-                match key {
-                    Key::Char('q') => { break; }
+                match key.key {
+                    PressedKey::Char('q') => { break; }
                     _ => { }
                 }
             },
