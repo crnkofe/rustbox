@@ -25,14 +25,14 @@ pub mod mouse;
 
 pub use self::running::running;
 pub use keyboard::Modifiers;
-pub use keyboard::PressedKey;
+pub use keyboard::ExtendedKey;
 pub use keyboard::Key;
 pub use mouse::Mouse;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Event {
     KeyEventRaw(u8, u16, u32),
-    KeyEvent(Key),
+    KeyEvent(ExtendedKey),
     ResizeEvent(i16, i16),
     MouseEvent(Mouse, i16, i16),
     NoEvent
@@ -177,21 +177,21 @@ impl FromPrimitive for EventError {
 
 pub type EventResult = Result<Event, EventError>;
 
-fn unpack_key(event_key: u16, event_char: u32) -> Option<Key> {
+fn unpack_key(event_key: u16, event_char: u32) -> Option<ExtendedKey> {
     let mut modifiers = Modifiers::new();
     let parsed_key = char::from_u32(event_char);
     match parsed_key {
         Some(c) => {
             if c.is_ascii_uppercase() {
                 modifiers = Modifiers::new_all(false, true, false);
-                return Some(Key::new(PressedKey::Char(c), modifiers));
+                return Some(ExtendedKey::new(Key::Char(c), modifiers));
             } else {
-                return Some(Key::new(PressedKey::Char(c), modifiers));
+                return Some(ExtendedKey::new(Key::Char(c), modifiers));
             }
         }
         _ => {}
     }
-    return Some(Key::new(PressedKey::Unknown(event_key), Modifiers::new()));
+    return Some(ExtendedKey::new(Key::Unknown(event_key), Modifiers::new()));
 }
 
 /// Unpack a RawEvent to an Event
@@ -214,7 +214,7 @@ fn unpack_event(ev_type: c_int, ev: &RawEvent, raw: bool) -> EventResult {
                 let mut k = match ev.key {
                     0 => unpack_key(ev.key, ev.ch),
                     // TODO: figure out how to get ctrl+shift shortcuts
-                    a => Key::from_code(a),
+                    a => ExtendedKey::from_code(a),
                 };
 
 
@@ -225,7 +225,7 @@ fn unpack_event(ev_type: c_int, ev: &RawEvent, raw: bool) -> EventResult {
                     actual_key.raw_ch = ev.ch;
                     return Ok(Event::KeyEvent(actual_key))
                 } else {
-                    Event::KeyEvent(Key::new(PressedKey::Unknown(ev.key), Modifiers::new()))
+                    Event::KeyEvent(ExtendedKey::new(Key::Unknown(ev.key), Modifiers::new()))
                 }
             }),
         2 => Ok(Event::ResizeEvent(ev.w, ev.h)),
