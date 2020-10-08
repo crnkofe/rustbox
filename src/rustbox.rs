@@ -54,11 +54,12 @@ pub enum InputMode {
     AltMouse = 0x06
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OutputMode {
     Normal = 0,
     EightBit = 1,  // 256 Colors
     // TrueColor = 2 ; needs to be compiled in
+    NoOutput = 10,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -211,7 +212,7 @@ fn unpack_event(ev_type: c_int, ev: &RawEvent, raw: bool) -> EventResult {
             } else {
                 // TODO: emod has alt modifier
                 // there is no shift modifier to check for so we simplify - check for uppercase
-                let mut k = match ev.key {
+                let k = match ev.key {
                     0 => unpack_key(ev.key, ev.ch),
                     // TODO: figure out how to get ctrl+shift shortcuts
                     a => ExtendedKey::from_code(a),
@@ -353,7 +354,7 @@ mod running {
     use std::sync::atomic::{self, AtomicBool};
 
     // The state of the RustBox is protected by the lock. Yay, global state!
-    static RUSTBOX_RUNNING: AtomicBool = atomic::ATOMIC_BOOL_INIT;
+    static RUSTBOX_RUNNING: AtomicBool = AtomicBool::new(false);
 
     /// true iff RustBox is currently running. Beware of races here--don't rely on this for anything
     /// critical unless you happen to know that RustBox cannot change state when it is called (a good
@@ -419,18 +420,31 @@ impl RustBox {
         };
 
         // Create the RustBox.
-        let mut rb = unsafe { match termbox::tb_init() {
-            0 => RustBox {
-                _stderr: stderr,
-                _running: running,
-                output_mode: OutputMode::Normal,
-                input_lock: Mutex::new(()),
-                output_lock: Mutex::new(()),
-            },
-            res => {
-                return Err(FromPrimitive::from_isize(res as isize).unwrap())
+        let rb = unsafe { 
+            if opts.output_mode != OutputMode::NoOutput {
+                match termbox::tb_init() {
+                    0 => RustBox {
+                        _stderr: stderr,
+                        _running: running,
+                        output_mode: opts.output_mode,
+                        input_lock: Mutex::new(()),
+                        output_lock: Mutex::new(()),
+                    },
+                    res => {
+                        return Err(FromPrimitive::from_isize(res as isize).unwrap())
+                    }
+                }
+            } else {
+                RustBox {
+                    _stderr: stderr,
+                    _running: running,
+                    output_mode: opts.output_mode,
+                    input_lock: Mutex::new(()),
+                    output_lock: Mutex::new(()),
+                }
             }
-        }};
+        };
+
         /*
         // TODO: set input mode
         match opts.input_mode {
@@ -438,45 +452,59 @@ impl RustBox {
             _ => rb.set_input_mode(opts.input_mode),
         }
         */
-        match opts.output_mode {
-            OutputMode::Normal=> (),
-            _ => rb.set_output_mode(opts.output_mode),
-        }
 
         Ok(rb)
     }
 
     pub fn width(&self) -> usize {
+        if self.output_mode == OutputMode::NoOutput {
+            return 0;
+        }
         let _lock = self.output_lock.lock();
 
         unsafe { termbox::tb_width() as usize }
     }
 
     pub fn height(&self) -> usize {
+        if self.output_mode == OutputMode::NoOutput {
+            return 0;
+        }
         let _lock = self.output_lock.lock();
 
         unsafe { termbox::tb_height() as usize }
     }
 
     pub fn clear(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         let _lock = self.output_lock.lock();
 
         unsafe { termbox::tb_clear_buffer() }
     }
 
     pub fn present(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         let _lock = self.output_lock.lock();
 
         unsafe { termbox::tb_render() }
     }
 
     pub fn set_cursor(&self, x: isize, y: isize) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         let _lock = self.output_lock.lock();
 
         unsafe { termbox::tb_set_cursor(x as c_int, y as c_int) }
     }
 
     pub fn print(&self, x: usize, y: usize, sty: Style, fg: Color, bg: Color, s: &str) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         let _lock = self.output_lock.lock();
 
         let fg_int;
@@ -504,6 +532,9 @@ impl RustBox {
     }
 
     pub fn print_char(&self, x: usize, y: usize, sty: Style, fg: Color, bg: Color, ch: char) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         let _lock = self.output_lock.lock();
 
         let fg_int;
@@ -528,6 +559,9 @@ impl RustBox {
     }
 
     pub fn poll_event(&self, raw: bool) -> EventResult {
+        if self.output_mode == OutputMode::NoOutput {
+            return Ok(Event::NoEvent);
+        }
         let _lock = self.input_lock.lock();
         let mut ev = NIL_RAW_EVENT;
         let rc = unsafe {
@@ -537,6 +571,9 @@ impl RustBox {
     }
 
     pub fn peek_event(&self, timeout: Duration, raw: bool) -> EventResult {
+        if self.output_mode == OutputMode::NoOutput {
+            return Ok(Event::NoEvent);
+        }
         let _lock = self.input_lock.lock();
         let mut ev = NIL_RAW_EVENT;
         let rc = unsafe {
@@ -546,6 +583,9 @@ impl RustBox {
     }
 
     pub unsafe fn change_cell(&self, x: usize, y: usize, ch: u32, fg: u16, bg: u16) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         let mut cell = RawCell{
             ch: ch,
             fg: fg,
@@ -554,25 +594,37 @@ impl RustBox {
         termbox::tb_cell(x as i32, y as i32, &mut cell);
     }
 
-    pub fn hide_cursor() {
+    pub fn hide_cursor(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         unsafe {
             termbox::tb_hide_cursor();
         }
     }
 
-    pub fn show_cursor() {
+    pub fn show_cursor(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         unsafe {
             termbox::tb_show_cursor();
         }
     }
 
-    pub fn enable_mouse() {
+    pub fn enable_mouse(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         unsafe {
             termbox::tb_enable_mouse();
         }
     }
 
-    pub fn disable_mouse() {
+    pub fn disable_mouse(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
         unsafe {
             termbox::tb_disable_mouse();
         }
@@ -588,15 +640,16 @@ impl RustBox {
     }
     */
 
+    /*
     pub fn set_output_mode(&mut self, mode: OutputMode) {
         let _lock = self.output_lock.lock();
 
         self.output_mode = mode;
-
         unsafe {
             termbox::tb_select_output_mode(mode as c_int);
         }
     }
+    */
 
     /// Convenience method to lock all (both input/output) access to
     /// Rustbox, shutdown termbox itself, and then defer to the caller (via F,
@@ -609,25 +662,31 @@ impl RustBox {
         let _input_lock = self.input_lock.lock();
         let _output_lock = self.output_lock.lock();
 
-        unsafe {
-            termbox::tb_shutdown();
+        if self.output_mode != OutputMode::NoOutput {
+            unsafe {
+                termbox::tb_shutdown();
+            }
         }
 
         func();
 
-        unsafe {
-            termbox::tb_init();
+        if self.output_mode != OutputMode::NoOutput {
+            unsafe {
+                termbox::tb_init();
+            }
         }
     }
 }
 
 impl Drop for RustBox {
     fn drop(&mut self) {
-        // Since only one instance of the RustBox is ever accessible, we should not
-        // need to do this atomically.
-        // Note: we should definitely have RUSTBOX_RUNNING = true here.
-        unsafe {
-            termbox::tb_shutdown();
+        if self.output_mode != OutputMode::NoOutput {
+            // Since only one instance of the RustBox is ever accessible, we should not
+            // need to do this atomically.
+            // Note: we should definitely have RUSTBOX_RUNNING = true here.
+            unsafe {
+                termbox::tb_shutdown();
+            }
         }
     }
 }
