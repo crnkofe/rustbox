@@ -445,11 +445,13 @@ impl RustBox {
             }
         };
 
+        /*
         // TODO: set input mode
         match opts.input_mode {
             InputMode::Current=> (),
             _ => rb.set_input_mode(opts.input_mode),
         }
+        */
 
         Ok(rb)
     }
@@ -638,16 +640,16 @@ impl RustBox {
     }
     */
 
-    /*
     pub fn set_output_mode(&mut self, mode: OutputMode) {
         let _lock = self.output_lock.lock();
 
         self.output_mode = mode;
-        unsafe {
-            termbox::tb_select_output_mode(mode as c_int);
+        if mode != OutputMode::NoOutput {
+            unsafe {
+                termbox::tb_select_output_mode(mode as c_int);
+            }
         }
     }
-    */
 
     /// Convenience method to lock all (both input/output) access to
     /// Rustbox, shutdown termbox itself, and then defer to the caller (via F,
