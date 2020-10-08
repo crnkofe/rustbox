@@ -402,7 +402,8 @@ impl RustBox {
         */
 
         match opts.output_mode {
-            OutputMode::Normal=> (),
+            OutputMode::Normal => (),
+            OutputMode::NoOutput => (),
             _ => rb.set_output_mode(opts.output_mode),
         }
 
