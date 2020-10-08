@@ -445,13 +445,11 @@ impl RustBox {
             }
         };
 
-        /*
         // TODO: set input mode
         match opts.input_mode {
             InputMode::Current=> (),
             _ => rb.set_input_mode(opts.input_mode),
         }
-        */
 
         Ok(rb)
     }
