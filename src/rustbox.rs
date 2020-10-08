@@ -420,7 +420,7 @@ impl RustBox {
         };
 
         // Create the RustBox.
-        let rb = unsafe { 
+        let mut rb = unsafe { 
             if opts.output_mode != OutputMode::NoOutput {
                 match termbox::tb_init() {
                     0 => RustBox {
@@ -452,6 +452,11 @@ impl RustBox {
             _ => rb.set_input_mode(opts.input_mode),
         }
         */
+
+        match opts.output_mode {
+            OutputMode::Normal=> (),
+            _ => rb.set_output_mode(opts.output_mode),
+        }
 
         Ok(rb)
     }
