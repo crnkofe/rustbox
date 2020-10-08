@@ -23,7 +23,6 @@ use std::time::Duration;
 pub mod keyboard;
 pub mod mouse;
 
-pub use self::running::running;
 pub use keyboard::Modifiers;
 pub use keyboard::ExtendedKey;
 pub use keyboard::Key;
@@ -294,11 +293,6 @@ impl FromPrimitive for InitError {
 pub struct RustBox {
     // We only bother to redirect stderr for the moment, since it's used for panic!
     _stderr: Option<Hold>,
-    // RAII lock.
-    //
-    // Note that running *MUST* be the last field in the destructor, since destructors run in
-    // top-down order. Otherwise it will not properly protect the above fields.
-    _running: running::RunningGuard,
 
     // Store this so we know which colours to use
     output_mode: OutputMode,
@@ -350,45 +344,6 @@ impl Default for InitOptions {
     }
 }
 
-mod running {
-    use std::sync::atomic::{self, AtomicBool};
-
-    // The state of the RustBox is protected by the lock. Yay, global state!
-    static RUSTBOX_RUNNING: AtomicBool = AtomicBool::new(false);
-
-    /// true iff RustBox is currently running. Beware of races here--don't rely on this for anything
-    /// critical unless you happen to know that RustBox cannot change state when it is called (a good
-    /// usecase would be checking to see if it's worth risking double printing backtraces to avoid
-    /// having them swallowed up by RustBox).
-    pub fn running() -> bool {
-        RUSTBOX_RUNNING.load(atomic::Ordering::SeqCst)
-    }
-
-    // Internal RAII guard used to ensure we release the running lock whenever we acquire it.
-    #[allow(missing_copy_implementations)]
-    pub struct RunningGuard(());
-
-    pub fn run() -> Option<RunningGuard> {
-        // Ensure that we are not already running and simultaneously set RUSTBOX_RUNNING using an
-        // atomic swap. This ensures that contending threads don't trample each other.
-        if RUSTBOX_RUNNING.swap(true, atomic::Ordering::SeqCst) {
-            // The Rustbox was already running.
-            None
-        } else {
-            // The RustBox was not already running, and now we have the lock.
-            Some(RunningGuard(()))
-        }
-    }
-
-    impl Drop for RunningGuard {
-        fn drop(&mut self) {
-            // Indicate that we're free now. We could probably get away with lower atomicity here,
-            // but there's no reason to take that chance.
-            RUSTBOX_RUNNING.store(false, atomic::Ordering::SeqCst);
-        }
-    }
-}
-
 impl RustBox {
     /// Initialize rustbox.
     ///
@@ -408,11 +363,6 @@ impl RustBox {
     /// let rb = RustBox::init(InitOptions { input_mode: rustbox::InputMode::Esc, ..Default::default() });
     /// ```
     pub fn init(opts: InitOptions) -> Result<RustBox, InitError> {
-        let running = match running::run() {
-            Some(r) => r,
-            None => return Err(InitError::AlreadyOpen),
-        };
-
         let stderr = if opts.buffer_stderr {
             Some(try!(Hold::stderr().map_err(|e| InitError::BufferStderrFailed(e))))
         } else {
@@ -425,7 +375,6 @@ impl RustBox {
                 match termbox::tb_init() {
                     0 => RustBox {
                         _stderr: stderr,
-                        _running: running,
                         output_mode: opts.output_mode,
                         input_lock: Mutex::new(()),
                         output_lock: Mutex::new(()),
@@ -437,7 +386,6 @@ impl RustBox {
             } else {
                 RustBox {
                     _stderr: stderr,
-                    _running: running,
                     output_mode: opts.output_mode,
                     input_lock: Mutex::new(()),
                     output_lock: Mutex::new(()),
