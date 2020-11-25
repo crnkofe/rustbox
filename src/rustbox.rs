@@ -437,6 +437,15 @@ impl RustBox {
         unsafe { termbox::tb_clear_buffer() }
     }
 
+    pub fn clear_screen(&self) {
+        if self.output_mode == OutputMode::NoOutput {
+            return;
+        }
+        let _lock = self.output_lock.lock();
+
+        unsafe { termbox::tb_clear_screen() }
+    }
+
     pub fn present(&self) {
         if self.output_mode == OutputMode::NoOutput {
             return;
